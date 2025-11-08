@@ -8,11 +8,16 @@ from elevenlabs.client import ElevenLabs
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
+
 # from langchain.chains import ConversationalRetrievalChain
 from langchain_classic.chains import conversational_retrieval
+
 # from langchain_community.chains
 from langchain_classic.memory import ConversationBufferMemory
-from langchain_classic.chains  import create_retrieval_chain, create_history_aware_retriever
+from langchain_classic.chains import (
+    create_retrieval_chain,
+    create_history_aware_retriever,
+)
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from dotenv import load_dotenv
@@ -31,6 +36,7 @@ from typing import List
 from langchain_core.documents import Document
 
 load_dotenv()
+
 
 class DocumentProcessor:
     def __init__(self):
@@ -88,7 +94,8 @@ class DocumentProcessor:
             vector_store.persist()
 
         return vector_store
-    
+
+
 class VoiceGenerator:
     def __init__(self, api_key):
         self.client = ElevenLabs(api_key=api_key)
@@ -113,10 +120,12 @@ class VoiceGenerator:
 
             # Generate audio using the client
             audio_generator = self.client.text_to_speech.convert(
-                text=text, voice=selected_voice, model_id="eleven_multilingual_v2",
+                text=text,
+                voice=selected_voice,
+                model_id="eleven_multilingual_v2",
                 voice_id="JBFqnCBsd6RMkjVDRZzb",
-            output_format="mp3_44100_128",)
-
+                output_format="mp3_44100_128",
+            )
 
             # Convert generator to bytes
             audio_bytes = b"".join(audio_generator)
@@ -129,7 +138,8 @@ class VoiceGenerator:
         except Exception as e:
             print(f"Error generating voice response: {e}")
             return None
-        
+
+
 # class VoiceAssistantRAG:
 #     def __init__(self, elevenlabs_api_key):
 #         self.whisper_model = whisper.load_model("base")
@@ -149,9 +159,9 @@ class VoiceGenerator:
 #         )
 #         # 1. Create history-aware retriever
 #         contextualize_q_prompt = ChatPromptTemplate.from_messages([
-#             ("system", """Given a chat history and the latest user question, 
-#             which might reference context in the chat history, formulate a standalone question 
-#             which can be understood without the chat history. Do NOT answer the question, 
+#             ("system", """Given a chat history and the latest user question,
+#             which might reference context in the chat history, formulate a standalone question
+#             which can be understood without the chat history. Do NOT answer the question,
 #             just reformulate it if needed and otherwise return it as is."""),
 #             MessagesPlaceholder("chat_history"),
 #             ("human", "{query}"),
@@ -162,29 +172,29 @@ class VoiceGenerator:
 #         #     memory=memory,
 #         #     verbose=True,
 #         # )
-        
+
 #         history_aware_retriever = create_history_aware_retriever(
-#             self.llm, 
-#             self.vector_store.as_retriever(), 
+#             self.llm,
+#             self.vector_store.as_retriever(),
 #             contextualize_q_prompt
 #         )
-        
+
 #         # 2. Create QA chain with chat history
 #         qa_prompt = ChatPromptTemplate.from_messages([
-#             ("system", """You are an assistant for question-answering tasks. 
-#             Use the following pieces of retrieved context to answer the question. 
-#             If you don't know the answer, just say that you don't know. 
+#             ("system", """You are an assistant for question-answering tasks.
+#             Use the following pieces of retrieved context to answer the question.
+#             If you don't know the answer, just say that you don't know.
 #             Use three sentences maximum and keep the answer concise.\n\n
 #             Context: {context}"""),
 #             # MessagesPlaceholder("chat_history"),
 #             ("human", "{query}"),
 #         ])
-        
+
 #         question_answer_chain = create_stuff_documents_chain(
-#             self.llm_model.llm, 
+#             self.llm_model.llm,
 #             qa_prompt
 #         )
-        
+
 #         # 3. Combine into retrieval chain
 #         self.qa_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
 
@@ -215,8 +225,8 @@ class VoiceGenerator:
 #     def text_to_speech(self, text: str, voice_name: str = None) -> str:
 #         """Convert text to speech"""
 #         return self.voice_generator.generate_voice_response(text, voice_name)
-    
-    
+
+
 class VoiceAssistantRAG:
     def __init__(self, elevenlabs_api_key):
         self.whisper_model = whisper.load_model("base")
@@ -231,41 +241,53 @@ class VoiceAssistantRAG:
     def setup_vector_store(self, vector_store):
         """Initialize the vector store and QA chain"""
         self.vector_store = vector_store
-        
+
         # 1. Create history-aware retriever
-        contextualize_q_prompt = ChatPromptTemplate.from_messages([
-            ("system", """Given a chat history and the latest user question, 
+        contextualize_q_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """Given a chat history and the latest user question, 
             which might reference context in the chat history, formulate a standalone question 
             which can be understood without the chat history. Do NOT answer the question, 
-            just reformulate it if needed and otherwise return it as is."""),
-            MessagesPlaceholder("chat_history"),
-            ("human", "{input}"),  # Fixed: changed {query} to {input}
-        ])
-        
+            just reformulate it if needed and otherwise return it as is.""",
+                ),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),  # Fixed: changed {query} to {input}
+            ]
+        )
+
         history_aware_retriever = create_history_aware_retriever(
             self.llm,  # Fixed: using self.llm directly
-            self.vector_store.as_retriever(), 
-            contextualize_q_prompt
+            self.vector_store.as_retriever(),
+            contextualize_q_prompt,
         )
-        
+
         # 2. Create QA chain with chat history
-        qa_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an assistant for question-answering tasks. 
+        qa_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are an assistant for question-answering tasks. 
             Use the following pieces of retrieved context to answer the question. 
             If you don't know the answer, just say that you don't know. 
             Use three sentences maximum and keep the answer concise.\n\n
-            Context: {context}"""),
-            MessagesPlaceholder("chat_history"),  # Fixed: uncommented this line
-            ("human", "{input}"),  # Fixed: changed {query} to {input}
-        ])
-        
+            Context: {context}""",
+                ),
+                MessagesPlaceholder("chat_history"),  # Fixed: uncommented this line
+                ("human", "{input}"),  # Fixed: changed {query} to {input}
+            ]
+        )
+
         question_answer_chain = create_stuff_documents_chain(
             self.llm,  # Fixed: using self.llm directly
-            qa_prompt
+            qa_prompt,
         )
-        
+
         # 3. Combine into retrieval chain
-        self.qa_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+        self.qa_chain = create_retrieval_chain(
+            history_aware_retriever, question_answer_chain
+        )
 
     def record_audio(self, duration=5):
         """Record audio from microphone"""
@@ -290,16 +312,19 @@ class VoiceAssistantRAG:
 
         try:
             # Fixed: Use correct input format with "input" key and include chat_history
-            response = self.qa_chain.invoke({
-                "input": query,  # Fixed: changed "question" to "input"
-                "chat_history": self.chat_history
-            })
-            
+            response = self.qa_chain.invoke(
+                {
+                    "input": query,  # Fixed: changed "question" to "input"
+                    "chat_history": self.chat_history,
+                }
+            )
+
             # Update chat history
             from langchain_core.messages import HumanMessage, AIMessage
+
             self.chat_history.append(HumanMessage(content=query))
             self.chat_history.append(AIMessage(content=response["answer"]))
-            
+
             return response["answer"]
         except Exception as e:
             return f"Error generating response: {str(e)}"
@@ -311,6 +336,7 @@ class VoiceAssistantRAG:
     def clear_chat_history(self):
         """Clear the conversation history"""
         self.chat_history = []
+
 
 def setup_knowledge_base():
     st.title("Knowledge Base Setup")
@@ -353,7 +379,8 @@ def setup_knowledge_base():
                 for file in os.listdir(temp_dir):
                     os.remove(os.path.join(temp_dir, file))
                 os.rmdir(temp_dir)
-                
+
+
 def main():
     st.set_page_config(page_title="Voice RAG Assistant", layout="wide")
 
