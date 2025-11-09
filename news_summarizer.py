@@ -1,13 +1,21 @@
 import os
 from typing import Optional
 from langchain_classic.chains.summarize import load_summarize_chain
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.chat_models import ChatOllama
 from langchain_classic.schema import Document
 from newspaper import Article
 from langchain_core.prompts import PromptTemplate
+from langchain_community.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
+from langchain_classic.chains import (
+    create_retrieval_chain,
+    create_history_aware_retriever,
+)
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from typing import List
+from langchain_core.documents import Document
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -29,6 +37,7 @@ class NewsArticleSummarizer:
         """
         self.model_type = model_type
         self.model_name = model_name
+        self.chat_history = []  # Add chat history storage
 
         # Setup LLM based on model type
         if model_type.lower().strip() == "openai":
@@ -36,6 +45,7 @@ class NewsArticleSummarizer:
                 raise ValueError("API key is required for OpenAI models")
             os.environ["OPENAI_API_KEY"] = api_key
             self.llm = ChatOpenAI(temperature=0, model_name=model_name)
+            self.embeddings = OpenAIEmbeddings()
         elif model_type.lower().strip() == "ollama":
             # Using ChatOllama with proper configuration
             self.llm = ChatOllama(
@@ -55,7 +65,8 @@ class NewsArticleSummarizer:
     def create_documents(self, text: str) -> list[Document]:
         texts = self.text_splitter.split_text(text)
         docs = [Document(page_content=text) for text in texts]
-        return docs
+        vector_store = self.create_vector_store(docs, "knowledge_base")
+        return docs, vector_store
 
     def fetch_article(self, url: str) -> Optional[Article]:
         try:
@@ -114,7 +125,7 @@ class NewsArticleSummarizer:
             if url:
                 article = self.fetch_article(url)
                 if article:
-                    docs = self.create_documents(article.text)
+                    docs, vector_store = self.create_documents(article.text)
                     article_data = {
                         "title": getattr(article, "title", ""),
                         "authors": getattr(article, "authors", []),
@@ -124,11 +135,11 @@ class NewsArticleSummarizer:
                     content_source = "url"
 
             elif document_name:
-                documents = self.load_document(document_name)
+                documents, vector_store = self.load_document(document_name)
                 if documents and len(documents) > 0:
                     # Combine all document pages
                     full_text = "\n".join([doc.page_content for doc in documents])
-                    docs = self.create_documents(full_text)
+                    docs, _ = self.create_documents(full_text)
                     article_data = {
                         "title": document_name,
                         "authors": [],
@@ -184,7 +195,7 @@ class NewsArticleSummarizer:
                 summary_text = summary_result.output_text
             else:
                 summary_text = str(summary_result)
-
+            self.setup_vector_store(vector_store)
             return {
                 "title": article_data.get("title", ""),
                 "authors": article_data.get("authors", []),
@@ -198,6 +209,126 @@ class NewsArticleSummarizer:
         except Exception as e:
             print(f"Error summarizing: {str(e)}")
             return {"Error": f"Summarization failed: {str(e)}"}
+
+    def create_vector_store(
+        self, documents: List[Document], persist_directory: str = None
+    ) -> Chroma:
+        # Use provided directory or create temporary one
+        if persist_directory is None:
+            self.persist_directory = tempfile.mkdtemp(prefix="chroma_db_")
+        else:
+            self.persist_directory = persist_directory
+            os.makedirs(self.persist_directory, exist_ok=True)
+
+        try:
+            print(f"Creating vector store in: {self.persist_directory}")
+
+            # Create new vector store
+            vector_store = Chroma.from_documents(
+                documents=documents,
+                embedding=self.embeddings,
+                persist_directory=self.persist_directory,
+            )
+
+            # Try to persist
+            try:
+                vector_store.persist()
+                self.vector_store = vector_store
+                print("Vector store persisted successfully")
+            except Exception as persist_error:
+                print(f"Warning: Could not persist vector store: {persist_error}")
+                # Continue with in-memory version
+
+            return vector_store
+
+        except Exception as e:
+            print(f"Error creating persistent vector store: {e}")
+            # Fallback to in-memory
+            print("Using in-memory vector store as fallback")
+            vector_store = Chroma.from_documents(
+                documents=documents, embedding=self.embeddings
+            )
+            self.vector_store = vector_store
+            return vector_store
+
+    def setup_vector_store(self, vector_store):
+        """Initialize the vector store and QA chain"""
+        self.vector_store = vector_store
+
+        # 1. Create history-aware retriever
+        contextualize_q_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """Given a chat history and the latest user question, 
+            which might reference context in the chat history, formulate a standalone question 
+            which can be understood without the chat history. Do NOT answer the question, 
+            just reformulate it if needed and otherwise return it as is.""",
+                ),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),  # Fixed: changed {query} to {input}
+            ]
+        )
+
+        history_aware_retriever = create_history_aware_retriever(
+            self.llm,  # Fixed: using self.llm directly
+            self.vector_store.as_retriever(),
+            contextualize_q_prompt,
+        )
+
+        # 2. Create QA chain with chat history
+        qa_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are an assistant for question-answering tasks. 
+            Use the following pieces of retrieved context to answer the question. 
+            If you don't know the answer, just say that you don't know. 
+            Use three sentences maximum and keep the answer concise.\n\n
+            Context: {context}""",
+                ),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ]
+        )
+
+        question_answer_chain = create_stuff_documents_chain(
+            self.llm,
+            qa_prompt,
+        )
+
+        # 3. Combine into retrieval chain
+        self.qa_chain = create_retrieval_chain(
+            history_aware_retriever, question_answer_chain
+        )
+
+    def generate_response(self, query):
+        """Generate response using RAG system"""
+        if self.qa_chain is None:
+            return "Error: Vector store not initialized"
+
+        try:
+            # Fixed: Use correct input format with "input" key and include chat_history
+            response = self.qa_chain.invoke(
+                {
+                    "input": query,  # Fixed: changed "question" to "input"
+                    "chat_history": self.chat_history,
+                }
+            )
+
+            # Update chat history
+            from langchain_core.messages import HumanMessage, AIMessage
+
+            self.chat_history.append(HumanMessage(content=query))
+            self.chat_history.append(AIMessage(content=response["answer"]))
+
+            return response["answer"]
+        except Exception as e:
+            return f"Error generating response: {str(e)}"
+
+    def clear_chat_history(self):
+        """Clear the conversation history"""
+        self.chat_history = []
 
 
 def main():

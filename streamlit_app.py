@@ -7,6 +7,7 @@ from news_summarizer import NewsArticleSummarizer
 from youtube_summarizer import YoutubeSummarizers
 from urllib.parse import urlparse
 import tldextract
+from voice_assistant import voice_assistant_page
 
 # Page configuration
 st.set_page_config(
@@ -97,7 +98,8 @@ class ConfigManager:
         st.sidebar.subheader("Model Settings")
 
         embedding_type = st.sidebar.selectbox(
-            "Embedding Type", ["OpenAI", "HuggingFace", "Sentence Transformers"]
+            "Embedding Type",
+            ["OpenAI", "HuggingFace", "Sentence Transformers", "Chroma"],
         )
 
         model_name = st.sidebar.selectbox(
@@ -392,6 +394,8 @@ def article_summarizer_page():
         st.session_state.conversation_history = []
     if "article_metadata" not in st.session_state:
         st.session_state.article_metadata = {}
+    if "summarizer" not in st.session_state:
+        st.session_state.summarizer = None
 
     # Input method selection
     input_method = st.radio(
@@ -474,6 +478,7 @@ def article_summarizer_page():
                                 config["api_provider"],
                                 config["model_name"],
                             )
+                            st.session_state.summarizer = summarizer
                             summary_result = summarizer.summarize(
                                 url_input, summary_type, language
                             )
@@ -624,14 +629,15 @@ def display_qa_section():
 
     # Process question
     if ask_button and question:
-        if not st.session_state.current_content:
+        if not st.session_state.current_content or st.session_state.summarizer is None:
             st.warning("Please generate a summary first before asking questions.")
             return
 
         with st.spinner("Analyzing content to answer your question..."):
             try:
-                # Generate answer using the stored content
-                answer = generate_answer(question, st.session_state.current_content)
+                # # Generate answer using the stored content
+
+                answer = st.session_state.summarizer.generate_response(question)
 
                 # Add to conversation history
                 st.session_state.conversation_history.append((question, answer))
@@ -660,38 +666,6 @@ def display_qa_section():
             st.rerun()
 
 
-def generate_answer(question: str, context: str) -> str:
-    """Generate answer based on question and context"""
-    # Placeholder for actual Q&A logic
-    # In practice, this would use your RAG system or LLM
-
-    # Simple rule-based answering for demonstration
-    question_lower = question.lower()
-
-    if "main point" in question_lower or "key point" in question_lower:
-        return "Based on the content, the main points appear to be focused on technological advancements, AI integration, and future applications in various industries. The emphasis is on practical implementations and potential benefits."
-
-    elif "summary" in question_lower or "summarize" in question_lower:
-        return "The content discusses emerging technologies and their impact on modern society, highlighting both opportunities and challenges. It covers various domains including artificial intelligence, automation, and digital transformation."
-
-    elif "what" in question_lower and "how" in question_lower:
-        return "The content explains that these technologies work through advanced algorithms and data processing, enabling automation and intelligent decision-making. Implementation typically involves integration with existing systems and careful planning."
-
-    elif "benefit" in question_lower or "advantage" in question_lower:
-        return "Key benefits include increased efficiency, cost reduction, improved accuracy, and enhanced user experiences. These technologies also enable new capabilities and business models that weren't previously possible."
-
-    elif "challenge" in question_lower or "problem" in question_lower:
-        return "The main challenges mentioned are implementation complexity, cost considerations, skill gaps, and potential ethical concerns. Successful adoption requires addressing these through proper planning and training."
-
-    elif "future" in question_lower or "trend" in question_lower:
-        return "Future trends indicate continued growth in AI capabilities, increased automation, better integration between systems, and more personalized user experiences. The focus is shifting towards ethical AI and sustainable technology practices."
-
-    else:
-        # Generic answer based on context length and question type
-        word_count = len(context.split())
-        return f"Based on the {word_count}-word content, this appears to be related to technology and innovation. The specific answer to '{question}' would require more detailed analysis of the particular aspects mentioned in your question. Would you like to ask about a specific section or concept from the content?"
-
-
 def calculate_relevance(question: str, answer: str) -> int:
     """Calculate relevance score between question and answer"""
     # Simple relevance calculation based on word overlap
@@ -705,89 +679,6 @@ def calculate_relevance(question: str, answer: str) -> int:
     relevance = min(100, int((overlap / len(question_words)) * 100))
 
     return relevance
-
-
-def voice_assistant_page():
-    """Voice Assistant Page"""
-    st.title("🎤 Voice Assistant")
-
-    st.markdown("""
-    Interact with an AI assistant using voice commands. Speak naturally and get intelligent responses.
-    """)
-
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        # Voice input options
-        st.subheader("Voice Input")
-
-        input_method = st.radio(
-            "Choose input method", ["Record Audio", "Upload Audio File"]
-        )
-
-        if input_method == "Record Audio":
-            recording_duration = st.slider(
-                "Recording duration (seconds)", min_value=5, max_value=60, value=15
-            )
-
-            if st.button("🎤 Start Recording", type="primary"):
-                with st.spinner(f"Recording for {recording_duration} seconds..."):
-                    # Placeholder for recording logic
-                    st.success("Recording completed!")
-
-        else:  # Upload Audio File
-            audio_file = st.file_uploader(
-                "Upload audio file",
-                type=["wav", "mp3", "m4a"],
-                help="Supported formats: WAV, MP3, M4A",
-            )
-
-            if audio_file is not None:
-                st.audio(audio_file)
-
-        # Additional settings
-        st.subheader("Assistant Settings")
-        voice_model = st.selectbox(
-            "Voice Model", ["Natural", "Professional", "Friendly", "Formal"]
-        )
-
-        response_length = st.select_slider(
-            "Response Length", options=["Brief", "Medium", "Detailed"], value="Medium"
-        )
-
-    with col2:
-        st.markdown("### Features")
-        st.markdown("""
-        - 🎤 Voice recognition
-        - 🗣️ Text-to-speech
-        - 💭 Context understanding
-        - 🔍 Information retrieval
-        - 📚 Document reference
-        """)
-
-        st.markdown("### Quick Actions")
-        if st.button("Clear Conversation"):
-            st.success("Conversation cleared!")
-
-        if st.button("Test Voice"):
-            st.info("Voice test initiated...")
-
-    # Conversation history placeholder
-    st.markdown("---")
-    st.subheader("💬 Conversation")
-
-    # Sample conversation
-    st.markdown(
-        """
-    <div style='background-color: #2d2d2d; padding: 15px; border-radius: 10px; margin: 10px 0;'>
-        <strong>You:</strong> Can you explain how AI voice assistants work?
-    </div>
-    <div style='background-color: #1a3d5f; padding: 15px; border-radius: 10px; margin: 10px 0;'>
-        <strong>Assistant:</strong> AI voice assistants use automatic speech recognition to convert audio to text, natural language processing to understand the meaning, and text-to-speech to respond verbally. They can integrate with various APIs for additional functionality.
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
 
 
 def main():
@@ -811,14 +702,18 @@ def main():
     elif page == "Article Summarizer":
         article_summarizer_page()
     elif page == "Voice Assistant":
-        voice_assistant_page()
+        voice_assistant_page(
+            config["api_key"],
+            config["api_provider"],
+            config["model_name"],
+        )
 
     # Footer
     st.sidebar.markdown("---")
     st.sidebar.markdown(
         """
         <div style='text-align: center; color: #666;'>
-            Built with Streamlit 🤖
+            Built by Taiwo Sokunbi 🤖
         </div>
         """,
         unsafe_allow_html=True,
