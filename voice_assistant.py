@@ -84,7 +84,6 @@ class DocumentProcessor:
     def create_vector_store(
         self, documents: List[Document], persist_directory: str = None
     ) -> Chroma:
-
         # Use provided directory or create temporary one
         if persist_directory is None:
             self.persist_directory = tempfile.mkdtemp(prefix="chroma_db_")

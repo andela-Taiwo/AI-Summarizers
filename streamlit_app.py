@@ -394,6 +394,8 @@ def article_summarizer_page():
         st.session_state.conversation_history = []
     if "article_metadata" not in st.session_state:
         st.session_state.article_metadata = {}
+    if "summarizer" not in st.session_state:
+        st.session_state.summarizer = None
 
     # Input method selection
     input_method = st.radio(
@@ -476,6 +478,7 @@ def article_summarizer_page():
                                 config["api_provider"],
                                 config["model_name"],
                             )
+                            st.session_state.summarizer = summarizer
                             summary_result = summarizer.summarize(
                                 url_input, summary_type, language
                             )
@@ -626,14 +629,15 @@ def display_qa_section():
 
     # Process question
     if ask_button and question:
-        if not st.session_state.current_content:
+        if not st.session_state.current_content or st.session_state.summarizer is None:
             st.warning("Please generate a summary first before asking questions.")
             return
 
         with st.spinner("Analyzing content to answer your question..."):
             try:
-                # Generate answer using the stored content
-                answer = generate_answer(question, st.session_state.current_content)
+                # # Generate answer using the stored content
+
+                answer = st.session_state.summarizer.generate_response(question)
 
                 # Add to conversation history
                 st.session_state.conversation_history.append((question, answer))
@@ -662,38 +666,6 @@ def display_qa_section():
             st.rerun()
 
 
-def generate_answer(question: str, context: str) -> str:
-    """Generate answer based on question and context"""
-    # Placeholder for actual Q&A logic
-    # In practice, this would use your RAG system or LLM
-
-    # Simple rule-based answering for demonstration
-    question_lower = question.lower()
-
-    if "main point" in question_lower or "key point" in question_lower:
-        return "Based on the content, the main points appear to be focused on technological advancements, AI integration, and future applications in various industries. The emphasis is on practical implementations and potential benefits."
-
-    elif "summary" in question_lower or "summarize" in question_lower:
-        return "The content discusses emerging technologies and their impact on modern society, highlighting both opportunities and challenges. It covers various domains including artificial intelligence, automation, and digital transformation."
-
-    elif "what" in question_lower and "how" in question_lower:
-        return "The content explains that these technologies work through advanced algorithms and data processing, enabling automation and intelligent decision-making. Implementation typically involves integration with existing systems and careful planning."
-
-    elif "benefit" in question_lower or "advantage" in question_lower:
-        return "Key benefits include increased efficiency, cost reduction, improved accuracy, and enhanced user experiences. These technologies also enable new capabilities and business models that weren't previously possible."
-
-    elif "challenge" in question_lower or "problem" in question_lower:
-        return "The main challenges mentioned are implementation complexity, cost considerations, skill gaps, and potential ethical concerns. Successful adoption requires addressing these through proper planning and training."
-
-    elif "future" in question_lower or "trend" in question_lower:
-        return "Future trends indicate continued growth in AI capabilities, increased automation, better integration between systems, and more personalized user experiences. The focus is shifting towards ethical AI and sustainable technology practices."
-
-    else:
-        # Generic answer based on context length and question type
-        word_count = len(context.split())
-        return f"Based on the {word_count}-word content, this appears to be related to technology and innovation. The specific answer to '{question}' would require more detailed analysis of the particular aspects mentioned in your question. Would you like to ask about a specific section or concept from the content?"
-
-
 def calculate_relevance(question: str, answer: str) -> int:
     """Calculate relevance score between question and answer"""
     # Simple relevance calculation based on word overlap
@@ -707,6 +679,7 @@ def calculate_relevance(question: str, answer: str) -> int:
     relevance = min(100, int((overlap / len(question_words)) * 100))
 
     return relevance
+
 
 def main():
     """Main application"""
